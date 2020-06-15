@@ -4,7 +4,6 @@ import re
 import requests
 import urllib.request
 
-from linkedin import linkedin
 from bs4 import BeautifulSoup
 
 
@@ -49,10 +48,10 @@ class Linkedin(Resource):
             finalList = []
             for job, company, link in zip(jobsList, companysList, linksList):
                 finalList.append(
-                    'Job Title: ' + str(job.getText()) + ',Comapny: ' + str(company.getText()) + ', Link:' + link)
+                    {'Title': str(job.getText()), 'Company': str(company.getText()), 'Link': link})
             # Converting final list into dict
-            finalDict = {i: finalList[i] for i in range(0, len(finalList))}
-            return finalDict
+            # finalDict = {i: finalList[i] for i in range(0, len(finalList))}
+            return finalList
         else:
             return None
 
@@ -60,9 +59,8 @@ class Linkedin(Resource):
 class Indeed(Resource):
     def __init__(self):
         Resource.__init__(self, 'indeed')
-    
-    
-    def get_page(self, what,where):
+
+    def get_page(self, what, where):
         """ Takes the query attributes - 'what' (job description) and 'where' (area for job search)
             and build the right URL string for Indeed.com job search according to the rellevant preferences.
            
@@ -77,16 +75,16 @@ class Indeed(Resource):
             url : str
                 the finaly url string
         """
-        
+
         what = str(what)
         where = str(where)
         wt = what.split()
         what = ""
-        for i in range(len(wt)):   #re-build of the "what" parameter, to match the Indeed's url structure
-            what+= wt[i]
-            if(i<len(wt)-1):
-                what+="+"
-        url = "https://il.indeed.com/jobs?q="+str(what)+"&l="+str(where)+"&sort=date"
+        for i in range(len(wt)):  # re-build of the "what" parameter, to match the Indeed's url structure
+            what += wt[i]
+            if (i < len(wt) - 1):
+                what += "+"
+        url = "https://il.indeed.com/jobs?q=" + str(what) + "&l=" + str(where) + "&sort=date"
         return url
 
     def get_soup(self, url):
@@ -107,21 +105,22 @@ class Indeed(Resource):
             page = urllib.request.urlopen(url)
             soup = BeautifulSoup(page, 'html.parser')
             page_count = soup.find_all(id="searchCountPages")
-            if (len(page_count)>0):   #if there's no id named "searchCountPages" that means there is no result for the search
+            if (len(
+                    page_count) > 0):  # if there's no id named "searchCountPages" that means there is no result for the search
                 return soup
             else:
                 print("No results for your search.")
         except:
             print("An error occured.")
-    
-    def get_jobList(self, soup,url): #builds list of first 100 jobs found on indeed.com
+
+    def get_jobList(self, soup, url):  # builds list of first 100 jobs found on indeed.com
         """
             This func goes over all job results in the page, filter the jobs published at last 30 days,
             and pharse them into a dictionary of the format- {Title: Link}.
             
             Parameters
             ----------
-            jobsDict : Dict
+            jobs_lst : Dict
                         the dictionary of all jobs found
             comp_lis : list
                         list of all companies of all jobs found on specific page
@@ -131,15 +130,15 @@ class Indeed(Resource):
             date_lis : list
                         list of all publish dates of every job found on specific page
         """
-        jobsDict ={}
+        jobs_lst = []
         count_page = soup.find_all(id="searchCountPages")
         for cnt in count_page:
             countArr = [int(s) for s in str(cnt).split() if s.isdigit()]
         if len(countArr) > 1:
-            pageN,amount_of_jobs = countArr
-            loop_size = int(amount_of_jobs/10)
+            pageN, amount_of_jobs = countArr
+            loop_size = int(amount_of_jobs / 10)
         for i in range(loop_size):
-            url_run = url+"&start="+str(i*10)
+            url_run = url + "&start=" + str(i * 10)
             soup = self.get_soup(url_run)
             regex = re.compile('^company')
             comp_lis = soup.find_all('span', attrs={'class': regex})
@@ -147,23 +146,25 @@ class Indeed(Resource):
             title_link_lis = soup.find_all('a', attrs={'class': regex})
             regex = re.compile('^date')
             date_lis = soup.find_all('span', attrs={'class': regex})
-            for link,company,date in zip(title_link_lis,comp_lis,date_lis):
+            for link, company, date in zip(title_link_lis, comp_lis, date_lis):
                 days = re.findall('\d+', str(date))
-                if (len(days)==0 or (int(days[0])<30)):
-                    jobsDict[(link.get('title')+","+company.get_text())] = ("http://il.indeed.com"+link.get('href'))
-        return jobsDict
-    
+                if (len(days) == 0 or (int(days[0]) < 30)):
+                    jobs_lst.append({'Title': link.get('title'), 'Company': company.get_text(), 'Link':
+                        "http://il.indeed.com" + link.get('href')})
+        return jobs_lst
+
     def get_jobs(self, what, where):
         try:
-            url = self.get_page(what,where)
+            url = self.get_page(what, where)
             soup = self.get_soup(url)
             if soup is not None:
-                jd = self.get_jobList(soup,url)
+                jd = self.get_jobList(soup, url)
                 return jd
             else:
                 return None
         except:
             print("An error occured.")
+
 
 class Glassdoor(Resource):
     JOB_TYPES = ['fulltime', 'parttime', 'contract', 'internship', 'temporary', 'apprenticeship', 'entrylevel']
@@ -171,7 +172,6 @@ class Glassdoor(Resource):
     def __init__(self):
         Resource.__init__(self, 'glassdoor')
 
-        
     def get_jobs(self, job_title: str, job_location: str = None, job_type: str = None):
         """
         using part of code from: https://gist.github.com/scrapehero/352286d0f9dee87990cd45c3f979e7cb
@@ -255,7 +255,8 @@ class Glassdoor(Resource):
         # TODO: wrap requests.post with try / except.
         response = requests.post(job_listing_url, headers=headers, data=data)
         soup = BeautifulSoup(response.content, 'html.parser')
-
+        jobs_lst = {}
+        jobs_counter = {}
         job_listings = {}
         for a in soup.find_all('a', href=True):
 
@@ -267,8 +268,16 @@ class Glassdoor(Resource):
                 link = a['href']
                 full_link = 'https://www.glassdoor.com' + link
                 job_id = int(link.split('jobListingId=')[1])
-
+                # jobs_counter[full_link] = {'count': jobs_lst.get('count', {'count': -1})[
+                #                                     'count'] + 1}
+                if not jobs_lst.get(full_link):
+                    jobs_lst[full_link] = {}
+                    jobs_counter[full_link] = {'count': 0}
+                jobs_lst[full_link]['Link'] = full_link  # , Title': a.string,'Company': a.string, 'Link': full_link, 'Location': job_location}
                 # avoid possible duplicates by comparing details
+                if jobs_counter[full_link]['count'] == 0: jobs_lst[full_link]['Company'] = a.string
+                if jobs_counter[full_link]['count'] == 1: jobs_lst[full_link]['Title'] = a.string
+                jobs_counter[full_link]['count'] += 1
                 if (job_location in job_listings) and (job_id not in job_listings[job_location]):
                     job_listings[job_location].update({job_id: [a.string, full_link]})
 
@@ -279,4 +288,23 @@ class Glassdoor(Resource):
                     job_listings[job_location] = {job_id: [a.string, full_link]}
 
         # return dictionary with search results: {job_location: {job_id: [job_title, job_link]}}
-        return job_listings
+        return list(jobs_lst.values())
+
+
+# Example use - copied from tests
+# All classess return format:
+# {
+#   'Link':
+#   'Company':
+#   'Title':
+# }
+linkdin = Linkedin().get_jobs(
+    url='https://www.linkedin.com/jobs/search/?geoId=101620260&keywords=student%20developer&location=Israel')
+print("linkdin done")
+inneed = Indeed().get_jobs("student software", "israel")
+print("inneeed done")
+glassdoor = Glassdoor().get_jobs(
+    job_title='Engineer',
+    job_location='Haifa',
+    job_type='fulltime')
+print("glassdoor done")
